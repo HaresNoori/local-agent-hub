@@ -3,9 +3,12 @@
 A loopback-only SQLite broker for approval-gated handoffs between local agent tools.
 
 One process (the broker) holds a task queue. Agents, called `agent-a`, `agent-b` and so on here,
-submit tasks. A human approves each task by its digest before anything runs. Workers then claim
+submit tasks. An approver approves each task by its digest before anything runs. Workers then claim
 approved tasks, run them through a restricted command-line adapter, and report results back.
-Nothing is executed, relayed or exported without an explicit approval step.
+No task runs, and no result is posted, exported or sent, until an approval call carrying the
+matching digest has been made with the coordinator credential. Reading from outside (polling issue
+comments, importing shared-folder files) and requests to cancel are not approval-gated: they create
+inert records or stop work. See `THREAT_MODEL.md` for what this does and does not protect against.
 
 ## Architecture
 
@@ -26,7 +29,7 @@ Nothing is executed, relayed or exported without an explicit approval step.
 | `hub/worker.py`, `hub/adapters.py` | Worker loop and CLI adapters with a scrubbed environment and output caps |
 | `hub/drive_bridge.py` | Untrusted file-based message exchange through a shared folder |
 | `hub/relay.py`, `hub/github_client.py` | Optional relay via a private repository's issues; outbound delivery needs approval |
-| `hub/webhook_bridge.py` | One-shot, approval-gated outbound webhook with address pinning |
+| `hub/webhook_bridge.py` | One-shot, approval-gated outbound webhook; the connection is pinned to the validated public address from a single DNS lookup |
 | `hub/security.py` | Token comparison, fingerprints, secret redaction |
 
 ## Quickstart (Windows PowerShell)
@@ -75,10 +78,10 @@ Drive and relay endpoints are off unless enabled with `HUB_ENABLE_DRIVE` / `HUB_
 
 ## Security model
 
-- **Loopback only.** The relay client refuses non-loopback broker URLs and the start script binds `127.0.0.1`.
-- **Approval gate.** Task content is hashed. A task runs only after an approver submits the matching digest. Messages from outside (shared folder, relay) are stored as untrusted data and must be promoted and approved before becoming tasks.
+- **Loopback only.** The start script binds `127.0.0.1`; the server itself checks no peer address. The MCP entry, the worker and the relay client refuse non-loopback broker URLs.
+- **Approval gate.** Task content is hashed. A task runs only after the coordinator credential submits the matching digest. The credential is not proof of a human: an MCP client holds it, so keep approval a separate step you perform. Messages from outside (shared folder, relay) are stored as untrusted data and must be promoted and approved before becoming tasks.
 - **Separate tokens.** Coordinator, worker and relay credentials are distinct environment variables, are not stored in the database, and are redacted from returned output.
-- **Restricted workers.** Adapters run a fixed command line, in an allow-listed workspace root, with a scrubbed environment, a timeout and an output cap. Provider keys pass only through an explicit allow-list.
+- **Restricted workers.** Adapters run a fixed command line, in a fresh directory under the package's task root, with a scrubbed environment, a timeout and an output cap. Workspace paths are checked against an allow-list at dispatch but are not used as working directories. Provider keys pass only through an explicit allow-list.
 - **Fail closed.** Unconfigured adapters refuse to run; an emergency stop blocks new claims.
 
 This is a local coordination tool, not a hardened multi-tenant service. Do not expose it beyond loopback.
@@ -86,12 +89,25 @@ This is a local coordination tool, not a hardened multi-tenant service. Do not e
 ## Tests
 
 ```
-pip install -r requirements-lock.txt pytest
-pytest -q
+pip install -r requirements-lock.txt
+python -m unittest discover -s tests
 ```
 
-Tests use in-process test clients and temporary-directory databases only. They bind no ports and
-need no running broker (the `127.0.0.1:8765` strings in tests are inert configuration values).
+187 tests. They use in-process test clients and temporary-directory databases only. They bind no
+ports, need no running broker, and use fakes for GitHub, the shared folder and the webhook (the
+`127.0.0.1:8765` strings in tests are inert configuration values). `tests/test_refusals.py`,
+`tests/test_approval_gate.py` and `tests/test_webhook_pinning.py` cover refusal and edge paths.
+`tests/test_packaging.py` checks statically that the Python 3.11 minimum matches `pyproject.toml`
+and that the source parses with the 3.11 grammar; it does not run the suite on 3.11.
+
+## Examples
+
+Both run in process against a temporary database, with no server and no network:
+
+```
+python examples/submit_approve_complete.py   # submit, approve, claim, complete
+python examples/refused_unapproved.py        # unapproved claim, bad digest, wrong role, no token, stop
+```
 
 `python scripts/privacy_check.py <denylist-file>` scans the tree (contents and file names) for
 terms listed one per line in a file you supply. No denylist is stored in the repository.
@@ -101,6 +117,7 @@ terms listed one per line in a file you supply. No denylist is stored in the rep
 - Windows-oriented: PowerShell scripts, Windows process-tree handling and command-line limits.
 - Adapters are thin wrappers around example CLIs; `agent-d` is a placeholder that always refuses.
 - Single broker, single SQLite file, no clustering.
+- The webhook bridge reads replies only from the folder named in `HUB_WEBHOOK_INBOX_ROOT`. If that is unset, the bridge refuses to run.
 - Early (0.1.0) design with no stability guarantees.
 
 ## License

@@ -20,12 +20,18 @@ else:
     IMPORT_ERROR = None
 
 
+import secrets as _secrets
+
+COORD_TOKEN = _secrets.token_hex(16)  # generated per run; never a real credential
+WORKER_TOKEN = _secrets.token_hex(16)  # generated per run; never a real credential
+
+
 @unittest.skipIf(TestClient is None, "FastAPI test dependencies unavailable: " + str(IMPORT_ERROR))
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        os.environ["HUB_COORDINATOR_TOKEN"] = "coordinator-test-token"
-        os.environ["HUB_WORKER_TOKENS"] = "worker-test-token"
+        os.environ["HUB_COORDINATOR_TOKEN"] = COORD_TOKEN
+        os.environ["HUB_WORKER_TOKENS"] = WORKER_TOKEN
         os.environ["HUB_ENABLE_WORKERS"] = "0"
         os.environ.pop("HUB_ENABLE_RELAY", None)
         os.environ.pop("HUB_RELAY_TOKEN", None)
@@ -34,8 +40,8 @@ class ApiTests(unittest.TestCase):
         os.environ.pop("HUB_DRIVE_ROOT", None)
         os.environ.pop("HUB_DRIVE_WORKSPACE", None)
         self.client = TestClient(create_app(Store(Path(self.tmp.name) / "api.sqlite3", allowed_workspaces=[self.tmp.name])))
-        self.coordinator = {"Authorization":"Bearer coordinator-test-token"}
-        self.worker = {"Authorization":"Bearer worker-test-token"}
+        self.coordinator = {"Authorization":"Bearer " + COORD_TOKEN}
+        self.worker = {"Authorization":"Bearer " + WORKER_TOKEN}
 
     def tearDown(self):
         self.client.app.state.store.close()
@@ -79,12 +85,12 @@ class ApiTests(unittest.TestCase):
         claim = self.client.post("/v1/worker/claim",headers=self.worker,json={})
         finished = self.client.post("/v1/worker/complete",headers=self.worker,json={
             "task_id":task["id"],"worker_id":"worker-1","lease_epoch":claim.json()["lease_epoch"],
-            "result":{"echo":"coordinator-test-token"}})
+            "result":{"echo":COORD_TOKEN}})
         self.assertEqual(finished.json()["state"], "completed")
         status = self.client.get(f"/v1/status/{task['id']}",headers=self.coordinator)
         logs = self.client.get(f"/v1/logs/{task['id']}",headers=self.coordinator)
         self.assertEqual(status.json()["result"]["echo"], "[REDACTED]")
-        self.assertNotIn("coordinator-test-token", logs.text)
+        self.assertNotIn(COORD_TOKEN, logs.text)
 
     def test_inbox_active_state_filter_and_offset(self):
         for key in ("inbox-a","inbox-b","inbox-c"):

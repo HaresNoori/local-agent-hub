@@ -26,7 +26,14 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-VERIFIED_INBOX_ROOT = r"C:\agent-hub\inbox"
+# The one local folder the bridge may read replies from. There is no default: set it per machine.
+INBOX_ROOT_ENV = "HUB_WEBHOOK_INBOX_ROOT"
+
+
+def _verified_inbox_root() -> str:
+    return os.environ.get(INBOX_ROOT_ENV, "").strip()
+
+
 MAX_CONTENT_CHARS = 20_000
 MAX_REPLY_BYTES = 256_000
 MAX_WAIT_SECONDS = 180
@@ -47,7 +54,10 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _safe_inbox(path: str, expected_root: str = VERIFIED_INBOX_ROOT) -> Path:
+def _safe_inbox(path: str, expected_root: str | None = None) -> Path:
+    expected_root = expected_root or _verified_inbox_root()
+    if not expected_root:
+        raise BridgeError(f"no verified inbox configured; set {INBOX_ROOT_ENV}")
     given = os.path.abspath(path)
     expected = os.path.abspath(expected_root)
     if os.path.normcase(given) != os.path.normcase(expected):
@@ -68,7 +78,7 @@ def _is_reparse(path: Path) -> bool:
     return bool(getattr(info, "st_file_attributes", 0) & 0x400)
 
 
-def _validate_settings(settings: dict[str, Any], expected_inbox: str) -> tuple[Any, str, str, str]:
+def _validate_settings(settings: dict[str, Any], expected_inbox: str | None) -> tuple[Any, str, str, str]:
     if settings.get("format_version") != 1:
         raise BridgeError("webhook settings format is unsupported")
     url = settings.get("endpoint_url")
@@ -87,7 +97,7 @@ def _validate_settings(settings: dict[str, Any], expected_inbox: str) -> tuple[A
     if len(auth_value) > 8192:
         raise BridgeError("webhook auth value exceeds the size limit")
     parsed = urlsplit(url)
-    if parsed.scheme.lower() != "https" or not parsed.hostname or parsed.username or parsed.password:
+    if parsed.scheme.lower() != "https" or not parsed.hostname or parsed.username or parsed.password is not None:
         raise BridgeError("webhook endpoint must be an HTTPS URL without user information")
     if parsed.fragment or parsed.hostname.lower().rstrip(".") != host.lower().rstrip("."):
         raise BridgeError("webhook endpoint host does not match the pinned host")
@@ -240,7 +250,7 @@ def _run_transaction_locked(
     envelope: dict[str, Any],
     *,
     receipt_dir: str | Path,
-    expected_inbox: str = VERIFIED_INBOX_ROOT,
+    expected_inbox: str | None = None,
     sender: Callable[[Any, str, str, dict[str, str]], int] = _post_once,
     now: Callable[[], str] = _utc_now,
     wait: Callable[[float], None] = time.sleep,
@@ -390,7 +400,7 @@ def run_transaction(
     envelope: dict[str, Any],
     *,
     receipt_dir: str | Path,
-    expected_inbox: str = VERIFIED_INBOX_ROOT,
+    expected_inbox: str | None = None,
     sender: Callable[[Any, str, str, dict[str, str]], int] = _post_once,
     now: Callable[[], str] = _utc_now,
     wait: Callable[[float], None] = time.sleep,

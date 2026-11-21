@@ -16,6 +16,11 @@ from hub.webhook_bridge import (
 )
 
 
+import secrets as _secrets
+
+SENDER_KEY = _secrets.token_hex(16)  # generated per run; never a real credential
+
+
 class WebhookBridgeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -28,7 +33,7 @@ class WebhookBridgeTests(unittest.TestCase):
             "allowed_host": "hook.example.com",
             "header_name": "Authorization",
             "header_value_prefix": "Bearer ",
-            "sender_key": "test-key-only",
+            "sender_key": SENDER_KEY,
             "inbox_root": str(self.root),
         }
         self.envelope = {"settings": self.settings, "source": "agent-b", "content": "Review this small task.", "wait_seconds": 2}
@@ -45,7 +50,7 @@ class WebhookBridgeTests(unittest.TestCase):
         receipt = json.loads((self.receipts / "peer-webhook-pending.json").read_text(encoding="utf-8"))
         serialized = json.dumps(receipt)
         self.assertNotIn("Review this small task", serialized)
-        self.assertNotIn("test-key-only", serialized)
+        self.assertNotIn(SENDER_KEY, serialized)
         self.assertNotIn("hook.example.com", serialized)
         self.assertEqual(receipt["reply_filename"], f"FOR-AGENT-B-{prepared['task_id']}.md")
 
@@ -72,7 +77,7 @@ class WebhookBridgeTests(unittest.TestCase):
         self.assertEqual(result["reply_text_untrusted"], "Review result\n")
         self.assertEqual(len(posts), 1)
         self.assertEqual(posts[0][1], "Authorization")
-        self.assertEqual(posts[0][2], "Bearer test-key-only")
+        self.assertEqual(posts[0][2], "Bearer " + SENDER_KEY)
         self.assertEqual(posts[0][3]["id"], prepared["task_id"])
         self.assertIn(prepared["task_id"], posts[0][3]["content"])
         next_task = run_transaction({**self.envelope, "content": "A later task"}, receipt_dir=self.receipts, expected_inbox=str(self.root))

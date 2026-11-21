@@ -337,7 +337,7 @@ def create_app(store: Store | None = None) -> FastAPI:
 
     @app.post("/v1/worker/claim")
     def claim(body: WorkerClaimRequest, _p: Principal = Depends(worker)):
-        return broker.claim(_p.subject, body.lease_seconds)
+        return call(broker.claim, _p.subject, body.lease_seconds)
 
     @app.post("/v1/worker/heartbeat")
     def heartbeat(body: WorkerLeaseRequest, _p: Principal = Depends(worker)):

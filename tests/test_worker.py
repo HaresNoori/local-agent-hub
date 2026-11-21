@@ -15,6 +15,12 @@ from hub.store import Store
 from hub import worker
 
 
+import secrets as _secrets
+
+COORD_TOKEN = _secrets.token_hex(16)  # generated per run; never a real credential
+WORKER_TOKEN = _secrets.token_hex(16)  # generated per run; never a real credential
+
+
 class SimulatedTextWorker(CLIAdapter):
     """Fixture process only; it never calls a model or network service."""
     name = "fixture"
@@ -34,9 +40,9 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.temp.name) / "broker.sqlite3", allowed_workspaces=[self.temp.name])
         self.client = TestClient(create_app(self.store))
-        self.env = patch.dict(os.environ, {"HUB_COORDINATOR_TOKEN": "coord-test-token",
-            "HUB_WORKER_TOKENS": "worker-test-token", "HUB_ENABLE_WORKERS": "1",
-            "HUB_BROKER_URL": "http://127.0.0.1:8765", "HUB_WORKER_TOKEN": "worker-test-token"})
+        self.env = patch.dict(os.environ, {"HUB_COORDINATOR_TOKEN": COORD_TOKEN,
+            "HUB_WORKER_TOKENS": WORKER_TOKEN, "HUB_ENABLE_WORKERS": "1",
+            "HUB_BROKER_URL": "http://127.0.0.1:8765", "HUB_WORKER_TOKEN": WORKER_TOKEN})
         self.env.start()
         self.http = patch("urllib.request.build_opener", self.build_opener)
         self.http.start()
@@ -65,7 +71,7 @@ class WorkerIntegrationTests(unittest.TestCase):
         return Response(response)
 
     def test_simulated_worker_claims_executes_and_completes(self):
-        coordinator = {"Authorization": "Bearer coord-test-token"}
+        coordinator = {"Authorization": "Bearer " + COORD_TOKEN}
         created = self.client.post("/v1/dispatch", headers=coordinator, json={
             "workspace": self.temp.name,
             "payload": {"adapter": "fixture", "prompt": "hello"},
@@ -91,7 +97,7 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.assertIn("completed", {event["event"] for event in self.store.logs(created["id"])})
 
     def test_unavailable_adapter_failure_is_recorded_on_claimed_task(self):
-        coordinator = {"Authorization": "Bearer coord-test-token"}
+        coordinator = {"Authorization": "Bearer " + COORD_TOKEN}
         created = self.client.post("/v1/dispatch", headers=coordinator, json={
             "workspace": self.temp.name,
             "payload": {"adapter": "unknown", "prompt": "hello"},
@@ -111,7 +117,7 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.assertEqual(failed["worker_id"], "worker-1")
 
     def test_unconfigured_provider_key_fails_closed_by_default(self):
-        coordinator = {"Authorization": "Bearer coord-test-token"}
+        coordinator = {"Authorization": "Bearer " + COORD_TOKEN}
         created = self.client.post("/v1/dispatch", headers=coordinator, json={
             "workspace": self.temp.name,
             "payload": {"adapter": "agent-b", "prompt": "hello"},
@@ -128,7 +134,7 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.assertIn("explicit provider credential", failed["error"])
 
     def test_explicit_native_agent_b_profile_allows_scoped_auth_route(self):
-        coordinator = {"Authorization": "Bearer coord-test-token"}
+        coordinator = {"Authorization": "Bearer " + COORD_TOKEN}
         created = self.client.post("/v1/dispatch", headers=coordinator, json={
             "workspace": self.temp.name,
             "payload": {"adapter": "agent-b", "prompt": "hello"},
