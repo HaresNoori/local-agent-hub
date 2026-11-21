@@ -1,0 +1,40 @@
+{
+  "coordinator": {
+    "enabled": false,
+    "broker_url": "http://127.0.0.1:8765"
+  },
+  "worker": {
+    "enabled": false,
+    "worker_id": "worker-1",
+    "allow_unverified_provider_cost": false,
+    "cost_limit": 0,
+    "poll_seconds": 3,
+    "lease_seconds": 120,
+    "task_root": "./private-tasks",
+    "adapters": {
+      "agent-a": {
+        "enabled": false,
+        "model": "example-model",
+        "provider_key_env": "PROVIDER_A_API_KEY",
+        "executable": "/path/to/agent-a-cli",
+        "timeout_seconds": 300,
+        "max_output_bytes": 65536
+      },
+      "agent-b": {
+        "enabled": false,
+        "use_native_profile": false,
+        "model": "",
+        "provider_key_env": "PROVIDER_A_API_KEY",
+        "executable": "/path/to/agent-b-cli",
+        "timeout_seconds": 300,
+        "max_output_bytes": 65536
+      },
+      "agent-d": {
+        "enabled": false,
+        "executable": "",
+        "timeout_seconds": 300,
+        "max_output_bytes": 65536
+      }
+    }
+  }
+}
